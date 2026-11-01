@@ -6,8 +6,9 @@ spring:
     # Dosya yoksa (CI, testler) bu adım atlanır ve ortam değişkenleri kullanılır.
     import: optional:file:.env[.properties]
   datasource:
-    url: jdbc:postgresql://localhost:5432/bankops
-    username: bankops
+    # Varsayılanlar lokal docker compose içindir; yayında (Render) ortam değişkenleriyle ezilir.
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/bankops}
+    username: ${DB_USERNAME:bankops}
     password: ${DB_PASSWORD}
   jpa:
     hibernate:

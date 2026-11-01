@@ -65,7 +65,8 @@ Bu proje bir iş mülakatında sunulacak. Geliştirici, kodun her parçasını m
 | UI | shadcn/ui (Tailwind CSS), TanStack Table, TanStack Query, Recharts, React Router |
 | Formlar | react-hook-form + zod |
 | Kimlik doğrulama | Spring Security + JWT (OAuth2 Resource Server) + rol bazlı yetkilendirme |
-| Altyapı | Docker Compose, GitHub Actions (build + test) |
+| Altyapı | Docker Compose (lokal), GitHub Actions (build + test) |
+| Yayın | Vercel (frontend), Render (backend), Supabase (PostgreSQL + pgvector) — bkz. Bölüm 20 |
 
 ### Backend yardımcı kütüphaneleri
 
@@ -548,6 +549,7 @@ Her faz sonunda: testler geçmeli, uygulama çalışmalı, geliştiriciye özet 
 - Geri bildirim
 - Onaylanan çözümlerin bilgi tabanına eklenmesi
 - Frontend: AI Analizi paneli, Bilgi Tabanı ekranı
+- LLM sağlayıcı seçimi: canlı demo için bulut API'sı gerekir (bkz. Bölüm 20)
 - **Kabul**: Analiz yalnızca doğrulanmış kayıtlara dayanır, kişisel veriler LLM'e gitmez (testle doğrulanır), dayanak yoksa fallback mesajı gösterilir.
 
 ### Faz 5 — Dashboard
@@ -559,7 +561,8 @@ Her faz sonunda: testler geçmeli, uygulama çalışmalı, geliştiriciye özet 
 - WebSocket (STOMP) veya Server-Sent Events ile canlı kuyruk güncellemesi
 - Takım lideri için kayıt yeniden dağıtma
 - Boş durumlar, yükleme durumları, hata mesajlarının gözden geçirilmesi
-- README'nin tamamlanması (ekran görüntüleri, mimari diyagram, demo senaryosu)
+- README'nin tamamlanması (ekran görüntüleri, mimari diyagram, demo senaryosu, canlı demo linki)
+- **Yayın** (bkz. Bölüm 20): backend `Dockerfile`, Render + Supabase + Vercel kurulumu, seed verisinin yüklenmesi, canlı ortamda demo senaryosunun denenmesi
 
 ---
 
@@ -667,3 +670,24 @@ cd bankops_backend && docker compose up -d
 # Frontend
 cd ../bankops_frontend && npm install && npm run dev
 ```
+
+---
+
+## 20. Yayın (Deploy)
+
+Uygulama, mülakatçının bir linkten kendisi deneyebilmesi için bulutta yayınlanır.
+
+| Parça | Platform | Notlar |
+|---|---|---|
+| Frontend | **Vercel** | `bankops-ai-frontend` deposuna bağlanır; `main`'e her push'ta otomatik yayın. React Router için tüm yollar `index.html`'e yönlendirilir (`vercel.json` rewrite). API adresi `VITE_API_BASE_URL` ortam değişkeninden okunur. |
+| Backend | **Render** (Docker web service) | Depodaki `Dockerfile` ile derlenir. Tüm ayarlar Render'ın ortam değişkenlerinden gelir (`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET`, `CORS_ALLOWED_ORIGINS`, LLM anahtarı). |
+| Veritabanı | **Supabase** (PostgreSQL + pgvector) | Flyway migration'ları uygulama açılışında Supabase'e uygulanır. Bağlantı için **Session pooler** adresi kullanılır (Render IPv4 üzerinden bağlanır, doğrudan bağlantı IPv6 olabilir; transaction pooler Flyway ile uyumlu değildir). |
+
+### Kurallar
+
+- Lokal ile yayın arasındaki **tek fark ortam değişkenleridir**; koda ortama özel `if` yazılmaz. Lokalde `.env`, yayında platformun ortam değişkenleri kullanılır.
+- CORS izinli adresleri ve frontend'in API adresi ayardan okunur, koda sabit yazılmaz.
+- Canlı demoda AI için **bulut LLM API'sı** kullanılır (Ollama ücretsiz bulut katmanlarında çalıştırılamaz). Sağlayıcı seçimi Faz 4'te yapılır; lokal geliştirmede Ollama seçeneği korunabilir.
+- Demo herkese açık olduğundan AI analiz uç noktasına basit bir istek sınırı (rate limit) konur; LLM API anahtarının harcama limiti sağlayıcı panelinden sınırlandırılır.
+- Seed verisi Supabase'e bir kez, `seed` profiliyle yüklenir.
+- Ücretsiz katman sınırlamaları (koşullar değişebilir, yayın öncesi kontrol edilir): Render ücretsiz servisi bir süre istek almazsa uykuya geçer ve ilk istekte yavaş açılır; Supabase ücretsiz projesi uzun süre kullanılmazsa duraklatılabilir. Mülakattan önce link açılıp "ısıtılmalı".
