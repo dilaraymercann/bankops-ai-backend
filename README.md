@@ -32,6 +32,19 @@ docker compose up -d
 - Health: http://localhost:8080/actuator/health
 - Swagger UI: http://localhost:8080/swagger-ui.html
 
+## Demo verisi (seed)
+
+Sentetik veriyi (7 kullanıcı, ~2.500 istisna kaydı, ~450 bilgi tabanı çözümü) üretir ve kapanır:
+
+```bash
+# .env dosyasında SEED_DEMO_PASSWORD tanımlı olmalı (demo kullanıcılarının ortak parolası)
+./mvnw spring-boot:run -Dspring-boot.run.profiles=seed
+```
+
+Kullanıcı adları: `elif.kaya`, `can.arslan`, `zeynep.koc`, `mert.sahin`, `ayse.yildiz` (uzman), `burak.demir` (takım lideri), `selin.aydin` (yönetici). Parola yalnızca **lokal demo** içindir ve repoda tutulmaz.
+
+Veritabanı doluysa seed atlanır. Sıfırdan üretmek için: `docker compose down -v && docker compose up -d`.
+
 ## Test
 
 ```bash

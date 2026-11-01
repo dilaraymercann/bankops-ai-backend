@@ -172,7 +172,7 @@ BankOps/                              # Lokal çalışma klasörü (depo değil)
 | Burak Demir | TeamLead |
 | Selin Aydın | Manager |
 
-Tüm demo kullanıcıları için şifre seed sırasında üretilir ve `README.md`'de "yalnızca lokal demo" notuyla yazılır.
+Tüm demo kullanıcıları aynı parolayı kullanır. Depolar public olduğu için parola repoda tutulmaz: `SEED_DEMO_PASSWORD` ortam değişkeninden okunur (lokalde `.env`, yayında Render) ve BCrypt ile hash'lenir. `README.md` bunun nasıl ayarlanacağını anlatır; kullanıcı adları `elif.kaya`, `burak.demir` biçimindedir.
 
 ---
 
@@ -204,9 +204,9 @@ Tüm demo kullanıcıları için şifre seed sırasında üretilir ve `README.md
 
 **Resolution** — Çözüm kaydı ve bilgi tabanı girdisi
 - `CaseId`, `Text`, `ProposedByUserId`, `ApprovedByUserId`
-- `IsVerified` (yalnızca onaylananlar `true`)
+- `IsVerified` (yalnızca onaylananlar `true`; veritabanı CHECK kuralı onaylayanın öneren olmamasını da zorlar)
 - `IncludeInKnowledgeBase` (onaylayan karar verir)
-- `Embedding` (pgvector, `vector` tipi)
+- `Embedding` (pgvector, `vector` tipi) — sütun **Faz 4'te** eklenir, çünkü boyutu seçilecek embedding modeline bağlıdır
 - `CreatedAt`, `ApprovedAt`
 
 **AiAnalysis** — AI analiz sonucu (önbellek + geri bildirim)
@@ -284,7 +284,7 @@ Seed verisi bu kataloga göre üretilir.
 | Critical | 30 dakika |
 | High | 2 saat |
 | Medium | 8 saat |
-| Low | 2 iş günü |
+| Low | 2 iş günü (= 1080 mesai dakikası: 2 x 9 saat) |
 
 `SlaPolicy` tablosunda hata koduna özel daha spesifik bir kural varsa o geçerlidir.
 
@@ -490,7 +490,7 @@ Dönem seçici: Son 7 / 30 / 90 gün.
 
 ## 13. Sentetik Veri (Seeder)
 
-`seed` paketi, **Datafaker** ile `tr` yerel ayarında veri üretir. Uygulama `seed` Spring profiliyle başlatıldığında bir `CommandLineRunner` veritabanını doldurur ve kapanır. Seed **deterministiktir** (sabit random seed), böylece her çalıştırmada aynı demo verisi oluşur.
+`seed` paketi, **Datafaker** ile `tr` yerel ayarında veri üretir. Uygulama `seed` Spring profiliyle başlatıldığında bir `CommandLineRunner` veritabanını doldurur ve kapanır. Seed **deterministiktir** (sabit random seed), böylece her çalıştırmada aynı demo verisi oluşur (tarihler "bugüne" göre hesaplandığı için gün değişince zaman damgaları kayar). Veritabanı doluysa seed atlanır; sıfırdan üretmek için `docker compose down -v` ile veritabanı silinir.
 
 ### Üretilecek veri
 - 7 demo kullanıcısı (Bölüm 5)
@@ -498,7 +498,7 @@ Dönem seçici: Son 7 / 30 / 90 gün.
   - Hata türü dağılımı gerçekçi olmalı (`NAME_MISMATCH` ve `DUPLICATE_SUSPECT` en sık, `SANCTION_HIT` en seyrek)
   - Saatlik dağılım: hafta içi 14:00–16:00 arası yoğun, Pazartesi ve Cuma daha yüksek
   - **Yaklaşık 140** açık kayıt (farklı durumlarda, bir kısmı SLA'yı aşmış)
-- **300–500** doğrulanmış çözüm (bilgi tabanının çekirdeği)
+- **300–500** doğrulanmış çözüm (bilgi tabanının çekirdeği). Kapanan her kaydın onaylı bir çözümü vardır; bunlardan yaklaşık 450'si `IncludeInKnowledgeBase = true` ile bilgi tabanına girer. Dashboard'daki "doğrulanmış çözüm sayısı" **yalnızca bu bilgi tabanı çözümlerini** sayar
   - Her hata türü için gerçekçi, çeşitli Türkçe çözüm metinleri (örn. *"Müşteri temsilcisi aracılığıyla doğru IBAN teyit edildi, talimat düzeltilerek yeniden gönderildi."*)
   - `SANCTION_HIT` için bilerek az sayıda (yaklaşık 10) çözüm üret; dashboard'daki "bilgi tabanı zayıf" senaryosu böylece gerçekçi görünür
 - Geçmiş kayıtlar için `AiAnalysis` ve geri bildirim verileri (dashboard grafiklerinin dolu görünmesi için)

@@ -26,3 +26,10 @@ management:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+
+bankops:
+  sla:
+    business-hours-start: "08:30"
+    business-hours-end: "17:30"
+    time-zone: Europe/Istanbul
+    check-interval: 60000     # milisaniye (SLA kontrol job'u Faz 3'te eklenecek)

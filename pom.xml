@@ -16,6 +16,7 @@
 	<properties>
 		<java.version>25</java.version>
 		<springdoc.version>3.2.0</springdoc.version>
+		<datafaker.version>2.7.0</datafaker.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -45,6 +46,11 @@
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-database-postgresql</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>net.datafaker</groupId>
+			<artifactId>datafaker</artifactId>
+			<version>${datafaker.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.springdoc</groupId>
