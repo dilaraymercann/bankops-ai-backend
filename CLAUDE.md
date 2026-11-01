@@ -39,6 +39,7 @@ Bu proje bir iş mülakatında sunulacak. Geliştirici, kodun her parçasını m
 4. Basit ve okunabilir kodu, akıllıca ama karmaşık koda tercih et.
 5. Bu dosyada yazmayan bir kütüphane eklemeden önce geliştiriciye sor.
 6. Her fazın sonunda testlerin geçtiğinden ve uygulamanın çalıştığından emin ol.
+7. **Commit ve push öncesi geliştiriciden onay al.** Hangi depoya hangi commit mesajıyla neyin gideceğini göster, onay gelmeden GitHub'a push etme (her push CI'ı tetikler ve depolar public'tir).
 
 ### Dil kuralları
 
