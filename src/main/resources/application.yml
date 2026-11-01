@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: bankops-backend
+  config:
+    # Lokal geliştirmede gizli değerler proje kökündeki .env dosyasından okunur.
+    # Dosya yoksa (CI, testler) bu adım atlanır ve ortam değişkenleri kullanılır.
+    import: optional:file:.env[.properties]
+  datasource:
+    url: jdbc:postgresql://localhost:5432/bankops
+    username: bankops
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate      # Şemayı Flyway yönetir, Hibernate sadece doğrular
+    open-in-view: false
+  flyway:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
