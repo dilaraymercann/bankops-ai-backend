@@ -1,4 +1,4 @@
-package com.bankops.infrastructure.persistence;
+package com.bankops.application.repository;
 
 import com.bankops.domain.Resolution;
 import org.springframework.data.jpa.repository.JpaRepository;

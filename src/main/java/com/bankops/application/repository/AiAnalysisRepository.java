@@ -1,4 +1,4 @@
-package com.bankops.infrastructure.persistence;
+package com.bankops.application.repository;
 
 import com.bankops.domain.AiAnalysis;
 import org.springframework.data.jpa.repository.JpaRepository;

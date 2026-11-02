@@ -1,6 +1,6 @@
 package com.bankops.seed;
 
-import com.bankops.infrastructure.persistence.UserRepository;
+import com.bankops.application.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;

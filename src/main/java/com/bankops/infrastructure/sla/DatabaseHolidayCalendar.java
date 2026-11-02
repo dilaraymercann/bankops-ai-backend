@@ -2,7 +2,7 @@ package com.bankops.infrastructure.sla;
 
 import com.bankops.domain.HolidayCalendar;
 import com.bankops.domain.PublicHoliday;
-import com.bankops.infrastructure.persistence.PublicHolidayRepository;
+import com.bankops.application.repository.PublicHolidayRepository;
 import java.time.LocalDate;
 import java.util.Set;
 import java.util.stream.Collectors;

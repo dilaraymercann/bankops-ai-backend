@@ -7,8 +7,16 @@ import com.bankops.TestcontainersConfiguration;
 import com.bankops.domain.AiAnalysis;
 import com.bankops.domain.ErrorCode;
 import com.bankops.domain.IbanValidator;
-import com.bankops.infrastructure.persistence.AiAnalysisRepository;
+import com.bankops.domain.Priority;
+import com.bankops.domain.SlaCalculator;
+import com.bankops.domain.SlaState;
+import com.bankops.infrastructure.config.SlaProperties;
+import com.bankops.application.repository.AiAnalysisRepository;
 import com.bankops.seed.SeedDataService;
+import java.sql.Timestamp;
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +44,15 @@ class SeedDataIntegrationTest {
 
     @Autowired
     private AiAnalysisRepository analysisRepository;
+
+    @Autowired
+    private SlaCalculator slaCalculator;
+
+    @Autowired
+    private SlaProperties slaProperties;
+
+    @Autowired
+    private Clock clock;
 
     private SeedDataService.SeedSummary summary;
 
@@ -140,10 +157,25 @@ class SeedDataIntegrationTest {
     }
 
     @Test
-    void aiAssistedCasesResolveFasterOnAverage() {
-        Double withAi = jdbc.queryForObject(averageResolutionMinutes(true), Double.class);
-        Double withoutAi = jdbc.queryForObject(averageResolutionMinutes(false), Double.class);
+    void aiAssistedCasesResolveFasterOnAverageInWorkingTime() {
+        // Gece ve hafta sonları sayılmasın diye süre mesai üzerinden (SlaCalculator) ölçülür
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+                SELECT c.priority, c.created_at, c.closed_at,
+                       EXISTS (SELECT 1 FROM ai_analyses a WHERE a.case_id = c.id) AS used_ai
+                FROM exception_cases c WHERE c.status = 'Closed'""");
+        double withAi = averageWorkingMinutes(rows, true);
+        double withoutAi = averageWorkingMinutes(rows, false);
         assertThat(withAi).isLessThan(withoutAi);
+    }
+
+    private double averageWorkingMinutes(List<Map<String, Object>> rows, boolean usedAi) {
+        return rows.stream()
+                .filter(row -> usedAi == (Boolean) row.get("used_ai"))
+                .mapToLong(row -> slaCalculator.workingTimeBetween(
+                        Priority.valueOf((String) row.get("priority")),
+                        ((java.sql.Timestamp) row.get("created_at")).toInstant(),
+                        ((java.sql.Timestamp) row.get("closed_at")).toInstant()).toMinutes())
+                .average().orElseThrow();
     }
 
     @Test
@@ -154,6 +186,56 @@ class SeedDataIntegrationTest {
                 .isInstanceOf(DataAccessException.class).hasMessageContaining("yalnızca eklemeye açık");
         assertThatThrownBy(() -> jdbc.update("DELETE FROM audit_logs"))
                 .isInstanceOf(DataAccessException.class).hasMessageContaining("yalnızca eklemeye açık");
+    }
+
+    @Test
+    void queueContainsCasesWhoseSlaIsApproaching() {
+        List<Map<String, Object>> openCases = jdbc.queryForList("""
+                SELECT c.priority, c.created_at, c.sla_deadline, u.full_name AS assignee
+                FROM exception_cases c LEFT JOIN users u ON u.id = c.assigned_to_user_id
+                WHERE c.status NOT IN ('Closed','Rejected')""");
+        List<Map<String, Object>> approaching = openCases.stream()
+                .filter(row -> slaCalculator.stateAt(
+                        Priority.valueOf((String) row.get("priority")),
+                        ((Timestamp) row.get("created_at")).toInstant(),
+                        ((Timestamp) row.get("sla_deadline")).toInstant(),
+                        clock.instant()) == SlaState.Approaching)
+                .toList();
+        assertThat(approaching).hasSizeGreaterThanOrEqualTo(5);
+        // Demo kullanıcısının (Elif Kaya) kuyruğunda da sarı satırlar görünmeli
+        assertThat(approaching.stream().filter(row -> "Elif Kaya".equals(row.get("assignee")))).hasSizeGreaterThanOrEqualTo(2);
+    }
+
+    @Test
+    void humanActionsHappenDuringBusinessHoursExceptForCriticalCases() {
+        // Kullanıcı tarafından yapılan her işlem (durum geçişi, AI analizi, onay, geri bildirim) mesaide olmalı; Critical 7/24 çalışır
+        List<Map<String, Object>> actions = jdbc.queryForList("""
+                SELECT h.changed_at AS at, 'STATUS_CHANGE' AS kind FROM status_history h
+                  JOIN exception_cases c ON c.id = h.case_id
+                  WHERE h.changed_by_user_id IS NOT NULL AND c.priority <> 'Critical'
+                UNION ALL
+                SELECT a.timestamp, a.action FROM audit_logs a
+                  JOIN exception_cases c ON a.entity_type = 'ExceptionCase' AND c.id = a.entity_id
+                  WHERE a.user_id IS NOT NULL AND a.action IN ('AI_ANALYZE', 'APPROVE') AND c.priority <> 'Critical'
+                UNION ALL
+                SELECT a.timestamp, a.action FROM audit_logs a
+                  JOIN ai_analyses s ON a.entity_type = 'AiAnalysis' AND s.id = a.entity_id
+                  JOIN exception_cases c ON c.id = s.case_id
+                  WHERE a.user_id IS NOT NULL AND c.priority <> 'Critical'""");
+        assertThat(actions).hasSizeGreaterThan(5000);
+
+        ZoneId zone = slaProperties.timeZone();
+        List<String> outside = actions.stream()
+                .filter(row -> {
+                    LocalDateTime local = ((Timestamp) row.get("at")).toInstant().atZone(zone).toLocalDateTime();
+                    boolean workingTime = !local.toLocalTime().isBefore(slaProperties.businessHoursStart())
+                            && !local.toLocalTime().isAfter(slaProperties.businessHoursEnd());
+                    return !(slaCalculator.isBusinessDay(local.toLocalDate()) && workingTime);
+                })
+                .map(row -> row.get("kind") + " @ " + row.get("at"))
+                .limit(5)
+                .toList();
+        assertThat(outside).as("mesai dışındaki işlemler").isEmpty();
     }
 
     private long count(String sql) {

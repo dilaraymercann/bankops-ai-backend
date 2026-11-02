@@ -20,7 +20,7 @@ Maven kurmaya gerek yoktur; proje Maven Wrapper (`./mvnw`) ile gelir.
 
 ```bash
 # 1. Ortam değişkenlerini hazırla (yalnızca ilk sefer)
-cp .env.example .env        # DB_PASSWORD değerini değiştir
+cp .env.example .env        # DB_PASSWORD ve JWT_SECRET değerlerini değiştir (JWT_SECRET: openssl rand -hex 32)
 
 # 2. Veritabanını başlat
 docker compose up -d
@@ -31,6 +31,10 @@ docker compose up -d
 
 - Health: http://localhost:8080/actuator/health
 - Swagger UI: http://localhost:8080/swagger-ui.html
+
+## Giriş (JWT)
+
+`POST /api/auth/login` ile `{ "username", "password" }` gönderilir, dönen `token` her istekte `Authorization: Bearer <token>` olarak kullanılır. CORS yalnızca `CORS_ALLOWED_ORIGINS` adresine izin verir (varsayılan: `http://localhost:5173`).
 
 ## Demo verisi (seed)
 

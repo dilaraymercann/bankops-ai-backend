@@ -1,6 +1,7 @@
 package com.bankops.infrastructure.config;
 
 import com.bankops.domain.ApprovalPolicy;
+import com.bankops.domain.CaseAccessPolicy;
 import com.bankops.domain.CaseStateMachine;
 import com.bankops.domain.HolidayCalendar;
 import com.bankops.domain.SlaCalculator;
@@ -26,6 +27,11 @@ public class DomainConfig {
     @Bean
     ApprovalPolicy approvalPolicy() {
         return new ApprovalPolicy();
+    }
+
+    @Bean
+    CaseAccessPolicy caseAccessPolicy() {
+        return new CaseAccessPolicy();
     }
 
     @Bean

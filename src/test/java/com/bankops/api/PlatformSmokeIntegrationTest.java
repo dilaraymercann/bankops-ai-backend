@@ -46,7 +46,7 @@ class PlatformSmokeIntegrationTest {
     @Test
     void otherEndpointsRequireAuthentication() throws Exception {
         mockMvc.perform(get("/api/cases"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

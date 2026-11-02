@@ -33,3 +33,9 @@ bankops:
     business-hours-end: "17:30"
     time-zone: Europe/Istanbul
     check-interval: 60000     # milisaniye (SLA kontrol job'u Faz 3'te eklenecek)
+  jwt:
+    issuer: BankOps
+    expiry-minutes: 480
+    secret: ${JWT_SECRET}      # en az 32 karakter; ortam değişkeninden okunur
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}

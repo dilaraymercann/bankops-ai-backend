@@ -87,7 +87,7 @@ Mikroservis, Kubernetes, Kafka, Redis, Spring Statemachine. Tek kişilik bir pro
 
 ## 4. Mimari ve Klasör Yapısı
 
-Clean Architecture prensibiyle katmanlı bir modüler monolit. Tek bir Spring Boot uygulaması, katmanlar **paketlerle** ayrılır. Bağımlılık yönü içe doğrudur: `api → application → domain`, `infrastructure → application → domain`. **`domain` paketi Spring'e ve diğer paketlere bağımlı değildir** (JPA anotasyonları hariç).
+Clean Architecture prensibiyle katmanlı bir modüler monolit. Tek bir Spring Boot uygulaması, katmanlar **paketlerle** ayrılır. Bağımlılık yönü içe doğrudur: `api → application → domain`, `infrastructure → application → domain`. **`domain` paketi Spring'e ve diğer paketlere bağımlı değildir** (JPA anotasyonları hariç). Spring Data repository arayüzleri `application/repository` altındadır: use case servisleri veriye bunlar üzerinden erişir, böylece `application` hiçbir zaman `infrastructure`'a bağımlı olmaz.
 
 Backend ve frontend **iki ayrı Git deposudur**; her birinin kendi CI'ı vardır.
 
@@ -105,10 +105,10 @@ BankOps/                              # Lokal çalışma klasörü (depo değil)
 │       │   │   ├── BankOpsApplication.java
 │       │   │   ├── domain/           # Entity'ler, enum'lar, durum makinesi, iş kuralları,
 │       │   │   │                     # SlaCalculator, IbanValidator
-│       │   │   ├── application/      # Use case servisleri, DTO'lar (record), arayüzler
-│       │   │   │                     # (LlmAnalysisService, PiiMasker, SimilaritySearch)
-│       │   │   ├── infrastructure/   # JPA repository'leri, pgvector sorguları,
-│       │   │   │                     # Spring AI implementasyonları, maskeleme, güvenlik
+│       │   │   ├── application/      # Use case servisleri, DTO'lar (record), repository arayüzleri
+│       │   │   │                     # (Spring Data), LlmAnalysisService, PiiMasker, SimilaritySearch
+│       │   │   ├── infrastructure/   # Güvenlik (JWT), ayarlar, SLA tatil takvimi,
+│       │   │   │                     # pgvector sorguları, Spring AI implementasyonları
 │       │   │   ├── api/              # @RestController'lar, exception handler, SLA @Scheduled job
 │       │   │   └── seed/             # Datafaker ile sentetik veri üretici ("seed" profili)
 │       │   └── resources/
@@ -375,9 +375,9 @@ Tüm uç noktalar `/api` öneki ile başlar ve JWT gerektirir (login hariç).
 - `GET /api/auth/me` → aktif kullanıcı ve rolü
 
 ### İstisna kayıtları
-- `GET /api/cases` → filtreli liste (`status`, `priority`, `errorCode`, `transactionType`, `slaState`, `assignedTo`, `search`, `page`, `pageSize`, `sort`). Uzman yalnızca kendine atananları görür; takım lideri tümünü görür.
-- `GET /api/cases/summary` → kuyruk özet kartları için sayılar
-- `GET /api/cases/{id}` → detay (işlem bilgileri, notlar, durum geçmişi)
+- `GET /api/cases` → filtreli liste (`status`, `priority`, `errorCode`, `transactionType`, `slaState`, `assignedTo`, `search`, `page`, `pageSize`, `sort`). Uzman yalnızca kendine atananları görür; takım lideri tümünü görür. `status` verilmezse yalnızca açık kayıtlar gelir. `page` sıfırdan başlar, `pageSize` en fazla 100'dür. `sort` yalnızca `slaDeadline` (varsayılan, artan), `createdAt` veya `caseNumber` olabilir. Yönetici bu uç noktaya erişemez (403).
+- `GET /api/cases/summary` → kuyruk özet kartları için sayılar (`awaitingReview` = henüz incelemeye alınmamış, yani Yeni + Atandı)
+- `GET /api/cases/{id}` → detay (işlem bilgileri, notlar, durum geçmişi). IBAN ve kişi adları **sunucuda maskelenir**, ham değer tarayıcıya gönderilmez. Uzman başkasının kaydını açarsa 403 alır. Eskalasyonlar (SLA aşımı) geçmişte ayrı satır olarak görünür.
 - `POST /api/cases/{id}/notes` → not ekle
 - `POST /api/cases/{id}/transitions` → durum değiştir (`{ "toStatus": "...", "reason": "..." }`)
 - `POST /api/cases/{id}/resolution` → çözüm öner (durumu `SolutionProposed` yapar)
@@ -629,6 +629,8 @@ bankops:
     similarity-threshold: 0.70
     max-references: 5
     cache-hours: 24
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}   # yalnızca frontend adresi
   sla:
     business-hours-start: "08:30"
     business-hours-end: "17:30"

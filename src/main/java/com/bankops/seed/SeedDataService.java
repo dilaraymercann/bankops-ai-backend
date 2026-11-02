@@ -29,15 +29,15 @@ import com.bankops.domain.StatusHistory;
 import com.bankops.domain.TransactionType;
 import com.bankops.domain.User;
 import com.bankops.infrastructure.config.SlaProperties;
-import com.bankops.infrastructure.persistence.AiAnalysisRepository;
-import com.bankops.infrastructure.persistence.AuditLogRepository;
-import com.bankops.infrastructure.persistence.ExceptionCaseRepository;
-import com.bankops.infrastructure.persistence.PaymentTransactionRepository;
-import com.bankops.infrastructure.persistence.PublicHolidayRepository;
-import com.bankops.infrastructure.persistence.ResolutionRepository;
-import com.bankops.infrastructure.persistence.SlaPolicyRepository;
-import com.bankops.infrastructure.persistence.StatusHistoryRepository;
-import com.bankops.infrastructure.persistence.UserRepository;
+import com.bankops.application.repository.AiAnalysisRepository;
+import com.bankops.application.repository.AuditLogRepository;
+import com.bankops.application.repository.ExceptionCaseRepository;
+import com.bankops.application.repository.PaymentTransactionRepository;
+import com.bankops.application.repository.PublicHolidayRepository;
+import com.bankops.application.repository.ResolutionRepository;
+import com.bankops.application.repository.SlaPolicyRepository;
+import com.bankops.application.repository.StatusHistoryRepository;
+import com.bankops.application.repository.UserRepository;
 import com.bankops.infrastructure.sla.DatabaseHolidayCalendar;
 import com.bankops.seed.Dice.Weighted;
 import jakarta.persistence.EntityManager;
@@ -83,6 +83,12 @@ public class SeedDataService {
     private static final double AWAITING_INFO_RATE = 0.10;
     private static final double REVISION_RATE = 0.05;
     private static final int FLUSH_EVERY = 200;
+    /** SLA süresinin %80-96'sı dolmuş, henüz aşılmamış açık kayıt sayısı ("SLA yaklaşıyor" kartı için). */
+    private static final int APPROACHING_CASES = 8;
+    /** Kayıt açıldıktan sonra uzman işlemi yapılabilmesi için gereken en az çalışma süresi. */
+    private static final Duration MIN_WORKING_TIME_FOR_REVIEW = Duration.ofMinutes(10);
+    private static final List<ErrorCode> APPROACHING_CODES = List.of(
+            ErrorCode.NAME_MISMATCH, ErrorCode.DUPLICATE_SUSPECT, ErrorCode.IBAN_CHECKSUM, ErrorCode.ACCOUNT_BLOCKED);
 
     private record DemoUser(String fullName, String username, Role role) {
     }
@@ -317,8 +323,11 @@ public class SeedDataService {
             List<Weighted<ErrorCode>> openCodeWeights = CODE_WEIGHTS.stream()
                     .filter(option -> option.value() != ErrorCode.HOLIDAY_VALUE_DATE)
                     .toList();
-            for (int i = 0; i < OPEN_CASES - 1; i++) {
+            for (int i = 0; i < OPEN_CASES - 1 - APPROACHING_CASES; i++) {
                 plans.add(openPlan(dice.weighted(openCodeWeights)));
+            }
+            for (int i = 0; i < APPROACHING_CASES; i++) {
+                plans.add(approachingPlan(i));
             }
             plans.add(demoCasePlan());
             plans.sort(Comparator.comparing(plan -> plan.created));
@@ -427,6 +436,40 @@ public class SeedDataService {
                             w(SolutionProposed, 15), w(Escalated, 15));
         }
 
+        /**
+         * SLA süresinin %82-95'i dolmuş, henüz aşılmamış açık kayıt. Önce geçen çalışma süresi seçilir,
+         * kayıt o kadar mesai süresi önce açılmış sayılır. İlk ikisi Elif Kaya'ya atanır (demo kullanıcısı).
+         */
+        private CasePlan approachingPlan(int index) {
+            CasePlan plan = basePlan(dice.pick(APPROACHING_CODES));
+            if (index < 2) {
+                plan.assignee = specialists.getFirst();
+            }
+            plan.open = true;
+            plan.openStatus = dice.weighted(List.of(w(Assigned, 25), w(InReview, 50), w(AwaitingInfo, 15), w(SolutionProposed, 10)));
+            Duration sla = policies.durationFor(plan.priority, plan.code);
+            Duration elapsed = Duration.ofMillis((long) (sla.toMillis() * dice.uniform(0.82, 0.95)));
+            plan.created = latestCreationWithWorkingTime(plan, elapsed);
+            plan.deadline = slaCalculator.calculateDeadline(plan.created, plan.priority, sla);
+            return plan;
+        }
+
+        /** Şimdiye kadar tam olarak {@code elapsed} kadar çalışma süresi geçmiş olacak en geç açılış anı (ikili arama, 1 dk hassasiyet). */
+        private Instant latestCreationWithWorkingTime(CasePlan plan, Duration elapsed) {
+            long low = now.minus(Duration.ofDays(60)).getEpochSecond();
+            long high = now.getEpochSecond();
+            while (high - low > 60) {
+                long middle = (low + high) / 2;
+                Duration worked = slaCalculator.workingTimeBetween(plan.priority, Instant.ofEpochSecond(middle), now);
+                if (worked.compareTo(elapsed) >= 0) {
+                    low = middle;
+                } else {
+                    high = middle;
+                }
+            }
+            return Instant.ofEpochSecond(low);
+        }
+
         /** Demo senaryosu için: Elif Kaya'nın incelemedeki, SLA'sı aşılmış NAME_MISMATCH kaydı (CLAUDE.md §18). */
         private CasePlan demoCasePlan() {
             CasePlan plan = new CasePlan();
@@ -502,29 +545,31 @@ public class SeedDataService {
             Instant analysisAt;
 
             if (plan.open) {
+                // Uzman işlemleri mesaiye denk gelir (Critical hariç, o 7/24): zaman, geçen çalışma süresinin oranıyla bulunur
+                Duration total = slaCalculator.workingTimeBetween(plan.priority, created, now);
                 status = plan.openStatus;
-                Duration age = Duration.between(created, now);
+                if (status != New && status != Assigned && total.compareTo(MIN_WORKING_TIME_FOR_REVIEW) < 0) {
+                    // Kayıt açılalı yeterli mesai geçmediği için henüz incelemeye alınmış olamaz
+                    status = Assigned;
+                }
                 if (status != New) {
-                    Duration assignDelay = age.dividedBy(2).compareTo(Duration.ofMinutes(1)) < 0
-                            ? age.dividedBy(2) : Duration.ofMinutes(1);
-                    moves.add(new Move(New, Assigned, null, "Otomatik dağıtım", created.plus(assignDelay)));
+                    moves.add(new Move(New, Assigned, null, "Otomatik dağıtım", created.plus(Duration.ofMinutes(1))));
                 }
                 if (status == InReview || status == AwaitingInfo || status == SolutionProposed || status == Escalated) {
-                    moves.add(new Move(Assigned, InReview, specialistId, null, created.plus(age.multipliedBy(30).dividedBy(100))));
+                    moves.add(new Move(Assigned, InReview, specialistId, null, workingAt(plan, total, 0.30)));
                 }
                 if (status == AwaitingInfo) {
-                    moves.add(new Move(InReview, AwaitingInfo, specialistId, "Müşteriden bilgi bekleniyor",
-                            created.plus(age.multipliedBy(60).dividedBy(100))));
+                    moves.add(new Move(InReview, AwaitingInfo, specialistId, "Müşteriden bilgi bekleniyor", workingAt(plan, total, 0.60)));
                 }
                 if (status == SolutionProposed) {
-                    proposedAt = created.plus(age.multipliedBy(70).dividedBy(100));
+                    proposedAt = workingAt(plan, total, 0.70);
                     moves.add(new Move(InReview, SolutionProposed, specialistId, null, proposedAt));
                 }
                 if (status == Escalated) {
                     moves.add(new Move(InReview, Escalated, specialistId,
-                            "Manuel eskalasyon: takım lideri desteği gerekiyor", created.plus(age.multipliedBy(70).dividedBy(100))));
+                            "Manuel eskalasyon: takım lideri desteği gerekiyor", workingAt(plan, total, 0.70)));
                 }
-                analysisAt = created.plus(age.multipliedBy(50).dividedBy(100));
+                analysisAt = workingAt(plan, total, 0.50);
             } else {
                 closedAt = plan.closedAt;
                 Duration total = slaCalculator.workingTimeBetween(plan.priority, created, closedAt);
@@ -640,8 +685,10 @@ public class SeedDataService {
                     "{\"referencedCaseIds\":%s,\"maskedFieldCount\":%d}".formatted(
                             SeedTexts.jsonArray(references), maskedFields)));
             if (feedback != null) {
-                Instant feedbackAt = analysisAt.plus(Duration.ofMinutes(dice.between(2, 10)));
-                audits.add(audit(feedbackAt.isAfter(now) ? now : feedbackAt, specialistId, "AI_FEEDBACK",
+                Instant feedbackAt = slaCalculator.calculateDeadline(
+                        analysisAt, plan.priority, Duration.ofMinutes(dice.between(2, 10)));
+                Instant latest = plan.open ? now : plan.closedAt;
+                audits.add(audit(feedbackAt.isAfter(latest) ? analysisAt : feedbackAt, specialistId, "AI_FEEDBACK",
                         "AiAnalysis", analysis.getId(), "{\"feedback\":\"%s\"}".formatted(feedback)));
             }
         }
