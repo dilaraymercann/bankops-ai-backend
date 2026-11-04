@@ -7,11 +7,15 @@ import com.bankops.application.repository.AuditLogRepository;
 import com.bankops.application.repository.CaseNoteRepository;
 import com.bankops.application.repository.ExceptionCaseRepository;
 import com.bankops.application.repository.PaymentTransactionRepository;
+import com.bankops.application.repository.ResolutionRepository;
 import com.bankops.application.repository.StatusHistoryRepository;
 import com.bankops.application.repository.UserRepository;
 import com.bankops.domain.AuditLog;
 import com.bankops.domain.CaseAccessPolicy;
 import com.bankops.domain.CaseNote;
+import com.bankops.domain.CaseStateMachine;
+import com.bankops.domain.CaseStatus;
+import com.bankops.domain.Role;
 import com.bankops.domain.ExceptionCase;
 import com.bankops.domain.PaymentTransaction;
 import com.bankops.domain.SlaCalculator;
@@ -56,6 +60,8 @@ public class CaseQueryService {
     private final AuditLogRepository auditLogRepository;
     private final SlaCalculator slaCalculator;
     private final CaseAccessPolicy accessPolicy;
+    private final CaseStateMachine stateMachine;
+    private final ResolutionRepository resolutionRepository;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -130,7 +136,46 @@ public class CaseQueryService {
                 assignee == null ? null : UserSummary.from(assignee),
                 toTransactionView(transaction),
                 notes.stream().map(n -> new NoteView(n.getId(), nameOf(users, n.getAuthorUserId()), n.getText(), n.getCreatedAt())).toList(),
-                buildHistory(statusHistory, escalations, users));
+                buildHistory(statusHistory, escalations, users),
+                allowedTransitions(exceptionCase, user),
+                canProposeResolution(exceptionCase, user),
+                canAssign(exceptionCase, user),
+                pendingResolution(exceptionCase));
+    }
+
+    // ---------------------------------------------------------------- kullanıcı bu kayıtta ne yapabilir?
+
+    /** Durum açılır listesinde gösterilecek hedefler. Eskale kaydı yalnızca takım lideri yeniden incelemeye alabilir. */
+    private List<CaseStatus> allowedTransitions(ExceptionCase exceptionCase, CurrentUser user) {
+        if (exceptionCase.getStatus() == CaseStatus.Escalated && user.role() != Role.TeamLead) {
+            return List.of();
+        }
+        return List.copyOf(stateMachine.manualTargets(exceptionCase.getStatus()));
+    }
+
+    /** Çözümü yalnızca kayda atanmış uzman, kayıt incelemedeyken önerebilir. */
+    private boolean canProposeResolution(ExceptionCase exceptionCase, CurrentUser user) {
+        return user.role() == Role.Specialist
+                && user.id().equals(exceptionCase.getAssignedToUserId())
+                && stateMachine.canTransition(exceptionCase.getStatus(), CaseStatus.SolutionProposed);
+    }
+
+    private boolean canAssign(ExceptionCase exceptionCase, CurrentUser user) {
+        return user.role() == Role.TeamLead
+                && exceptionCase.getStatus().isOpen()
+                && exceptionCase.getStatus() != CaseStatus.SolutionProposed;
+    }
+
+    private PendingResolution pendingResolution(ExceptionCase exceptionCase) {
+        if (exceptionCase.getStatus() != CaseStatus.SolutionProposed) {
+            return null;
+        }
+        return resolutionRepository.findFirstByCaseIdAndVerifiedFalseOrderByCreatedAtDesc(exceptionCase.getId())
+                .map(resolution -> new PendingResolution(
+                        resolution.getText(),
+                        userRepository.findById(resolution.getProposedByUserId()).map(User::getFullName).orElse(null),
+                        resolution.getCreatedAt()))
+                .orElse(null);
     }
 
     // ---------------------------------------------------------------- SLA

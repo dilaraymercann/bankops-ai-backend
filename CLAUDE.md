@@ -306,7 +306,7 @@ Seed verisi bu kataloga göre üretilir.
 
 - `@Scheduled(fixedDelayString = "${bankops.sla.check-interval}")` ile çalışan bir job her dakika açık kayıtları kontrol eder (`@EnableScheduling` gerekir).
 - SLA'sı aşılan ve henüz eskale edilmemiş kayıtlar `IsEscalated = true` olarak işaretlenir, takım liderine bildirim düşer ve `AuditLog`'a `ESCALATE` kaydı yazılır.
-- Eskalasyon kaydın durumunu değiştirmez, yalnızca işaretler (uzman çalışmaya devam edebilir).
+- Eskalasyon kaydın durumunu değiştirmez, yalnızca işaretler (uzman çalışmaya devam edebilir). Job ilk çalışmasını da bir aralık sonra yapar. "Bildirim", kaydın takım liderinin kuyruğunda SLA aşıldı olarak ve işlem geçmişinde görünmesidir; anlık bildirim (SSE/WebSocket) Faz 6'dadır. Uzman bir kaydı elle eskale ederse (`Escalated` durumu) yalnızca takım lideri yeniden incelemeye alabilir.
 
 ---
 
@@ -378,10 +378,11 @@ Tüm uç noktalar `/api` öneki ile başlar ve JWT gerektirir (login hariç).
 - `GET /api/cases` → filtreli liste (`status`, `priority`, `errorCode`, `transactionType`, `slaState`, `assignedTo`, `search`, `page`, `pageSize`, `sort`). Uzman yalnızca kendine atananları görür; takım lideri tümünü görür. `status` verilmezse yalnızca açık kayıtlar gelir. `page` sıfırdan başlar, `pageSize` en fazla 100'dür. `sort` yalnızca `slaDeadline` (varsayılan, artan), `createdAt` veya `caseNumber` olabilir. Yönetici bu uç noktaya erişemez (403).
 - `GET /api/cases/summary` → kuyruk özet kartları için sayılar (`awaitingReview` = henüz incelemeye alınmamış, yani Yeni + Atandı)
 - `GET /api/cases/{id}` → detay (işlem bilgileri, notlar, durum geçmişi). IBAN ve kişi adları **sunucuda maskelenir**, ham değer tarayıcıya gönderilmez. Uzman başkasının kaydını açarsa 403 alır. Eskalasyonlar (SLA aşımı) geçmişte ayrı satır olarak görünür.
-- `POST /api/cases/{id}/notes` → not ekle
-- `POST /api/cases/{id}/transitions` → durum değiştir (`{ "toStatus": "...", "reason": "..." }`)
-- `POST /api/cases/{id}/resolution` → çözüm öner (durumu `SolutionProposed` yapar)
-- `POST /api/cases/{id}/assign` → kayıt ata (TeamLead)
+- `POST /api/cases/{id}/notes` → not ekle (`{ "text": "..." }`; yalnızca açık kayıtlara)
+- `POST /api/cases/{id}/transitions` → durum değiştir (`{ "toStatus": "...", "reason": "..." }`). Yalnızca genel geçişler: incelemeye al, bilgi bekle, iade et (`Rejected`), eskale et. `Rejected` ve `Escalated` için `reason` zorunludur. Çözüm önerme, onay ve atama kendi uç noktalarından geçer; bu hedefler burada 400, durum makinesinde olmayan geçiş 409 döner.
+- `POST /api/cases/{id}/resolution` → çözüm öner (`{ "text": "..." }`; durumu `SolutionProposed` yapar). Yalnızca kayda atanmış **uzman** önerebilir (takım lideri öneremez; aksi halde kendi çözümünü onaylayamayıp kayıt kilitlenirdi).
+- `POST /api/cases/{id}/assign` → kayıt ata (`{ "userId": 1 }`, yalnızca TeamLead, yalnızca uzmana). `New` kayıt `Assigned` olur, `Escalated` kayıt `InReview` olur.
+- Tüm yazma uç noktaları güncel **kayıt detayını** döner. Detaydaki `allowedTransitions`, `canProposeResolution`, `canAssign` alanları kullanıcının o kayıtta ne yapabileceğini söyler; arayüz kuralları kendisi bilmez. Aynı anda gelen çakışan işlemler için kayıt satırı kilitlenir (ikinci onay 409 alır).
 
 ### AI
 - `POST /api/cases/{id}/ai-analysis` → analiz üret veya önbellekten getir (`?refresh=true` önbelleği atlar)
@@ -389,8 +390,12 @@ Tüm uç noktalar `/api` öneki ile başlar ve JWT gerektirir (login hariç).
 
 ### Onaylar (TeamLead)
 - `GET /api/approvals` → onay bekleyen çözümler
+- `GET /api/approvals/{caseId}` → seçili çözümün incelemesi (dört göz kontrol sonucu, uzman geri bildirimi, çözüm süresi, son audit satırları)
 - `POST /api/approvals/{caseId}/approve` → `{ "includeInKnowledgeBase": true, "note": "..." }`
 - `POST /api/approvals/{caseId}/request-revision` → `{ "note": "..." }` (not zorunlu)
+
+### Kullanıcılar (TeamLead)
+- `GET /api/users?role=Specialist` → atama listesi için kullanıcılar
 
 ### Bilgi tabanı
 - `GET /api/knowledge-base` → doğrulanmış çözümler (arama + hata kodu filtresi)
@@ -449,7 +454,6 @@ Görsel tasarım taslağı `bankops_frontend/docs/design/BankOps AI Ekranları.p
   - Dört göz kontrol sonucu (geçti / geçmedi)
   - Önerilen çözüm metni
   - Özet kutuları: AI önerisiyle uyum, uzman geri bildirimi, toplam çözüm süresi
-  - Doğrulama kontrol listesi
   - "Bilgi tabanına güvenilir çözüm olarak ekle" onay kutusu (varsayılan işaretli)
   - Onay notu alanı
   - "Onayla ve Kapat" / "Revizyon İste" butonları

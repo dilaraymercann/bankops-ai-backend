@@ -46,6 +46,9 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health/**").permitAll()
                         .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
+                        // Atama, onay ve kullanıcı listesi yalnızca takım lideri içindir (daha özel kural önce gelir)
+                        .requestMatchers(HttpMethod.POST, "/api/cases/*/assign").hasRole("TeamLead")
+                        .requestMatchers("/api/approvals/**", "/api/users/**").hasRole("TeamLead")
                         // Kuyruk ve kayıtlar: Manager yalnızca dashboard'u görür
                         .requestMatchers("/api/cases/**").hasAnyRole("Specialist", "TeamLead")
                         .anyRequest().authenticated())

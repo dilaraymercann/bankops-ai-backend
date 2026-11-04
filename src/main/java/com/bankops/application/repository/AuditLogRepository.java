@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
 
     List<AuditLog> findByEntityTypeAndEntityIdAndActionOrderByTimestampAsc(String entityType, Long entityId, String action);
+
+    List<AuditLog> findTop5ByEntityTypeAndEntityIdOrderByTimestampDesc(String entityType, Long entityId);
 }

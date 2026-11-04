@@ -48,4 +48,26 @@ public final class CaseStateMachine {
     public Set<CaseStatus> allowedTargets(CaseStatus from) {
         return Set.copyOf(ALLOWED.get(from));
     }
+
+    /** Genel "durum değiştir" ile seçilemeyen hedefler: atama, çözüm önerme ve onay kendi uç noktalarından geçer. */
+    private static final Set<CaseStatus> DEDICATED_TARGETS = EnumSet.of(Assigned, SolutionProposed, Closed);
+
+    /**
+     * Kullanıcının durum açılır listesinden seçebileceği hedefler (sıralı). Onay bekleyen kayıttan
+     * (SolutionProposed) yalnızca onay ekranıyla çıkılır: onay veya revizyon isteği.
+     */
+    public Set<CaseStatus> manualTargets(CaseStatus from) {
+        if (from == SolutionProposed) {
+            return EnumSet.noneOf(CaseStatus.class);
+        }
+        Set<CaseStatus> targets = EnumSet.noneOf(CaseStatus.class);
+        targets.addAll(ALLOWED.get(from));
+        targets.removeAll(DEDICATED_TARGETS);
+        return targets;
+    }
+
+    /** İade (Rejected) ve manuel eskalasyon gerekçesiz yapılamaz. */
+    public boolean requiresReason(CaseStatus target) {
+        return target == Rejected || target == Escalated;
+    }
 }

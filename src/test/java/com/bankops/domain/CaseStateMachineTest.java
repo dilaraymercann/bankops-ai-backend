@@ -77,4 +77,33 @@ class CaseStateMachineTest {
     void escalatedCaseOnlyGoesBackToReview() {
         assertThat(stateMachine.allowedTargets(Escalated)).containsExactly(InReview);
     }
+
+    @Test
+    void manualTargetsExcludeAssignProposeAndApprove() {
+        assertThat(stateMachine.manualTargets(New)).containsExactly(Escalated);
+        assertThat(stateMachine.manualTargets(Assigned)).containsExactlyInAnyOrder(InReview, Escalated);
+        assertThat(stateMachine.manualTargets(InReview)).containsExactlyInAnyOrder(AwaitingInfo, Rejected, Escalated);
+        assertThat(stateMachine.manualTargets(AwaitingInfo)).containsExactlyInAnyOrder(InReview, Escalated);
+        assertThat(stateMachine.manualTargets(Escalated)).containsExactly(InReview);
+    }
+
+    @Test
+    void pendingApprovalCanOnlyBeLeftThroughTheApprovalScreen() {
+        assertThat(stateMachine.manualTargets(SolutionProposed)).isEmpty();
+    }
+
+    @Test
+    void closedAndRejectedHaveNoManualTargets() {
+        assertThat(stateMachine.manualTargets(Closed)).isEmpty();
+        assertThat(stateMachine.manualTargets(Rejected)).isEmpty();
+    }
+
+    @Test
+    void onlyRejectAndEscalateRequireAReason() {
+        for (CaseStatus status : CaseStatus.values()) {
+            assertThat(stateMachine.requiresReason(status))
+                    .as(status.name())
+                    .isEqualTo(status == Rejected || status == Escalated);
+        }
+    }
 }
