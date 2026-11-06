@@ -321,7 +321,7 @@ Aynı kayıt için son 24 saatte üretilmiş bir analiz varsa ve kayıt o zamand
 - **Yapısal filtre**: Aynı `ErrorCode` ve tercihen aynı işlem tipi.
 - **Semantik sıralama**: Kaydın hata açıklaması + işlem açıklamasının embedding'i ile `Resolution.Embedding` arasında kosinüs benzerliği (pgvector `<=>` operatörü). Bu sorgu okunabilirlik için **native SQL** olarak yazılır (`JdbcTemplate` veya `@Query(nativeQuery = true)`).
 - **Sadece** `IsVerified = true` ve `IncludeInKnowledgeBase = true` olan çözümler aranır.
-- En benzer **en fazla 5** kayıt, minimum benzerlik eşiği **0.70** ile döner.
+- En benzer **en fazla 5** kayıt, minimum benzerlik eşiği **0.80** ile döner.
 
 ### 3. Fallback
 Eşiği geçen kayıt yoksa LLM çağrılmaz. Arayüzde şu mesaj gösterilir: *"Güvenilir geçmiş kayıt bulunamadı. Bu kayıt için AI önerisi üretilmedi."* Bu kasıtlı bir tasarım kararıdır: AI dayanaksız tahmin yürütmez.
@@ -625,7 +625,7 @@ bankops:
     expiry-minutes: 480
     secret: ${JWT_SECRET}
   ai:
-    similarity-threshold: 0.70
+    similarity-threshold: 0.80
     max-references: 5
     cache-hours: 24
     user-limit-per-minute: 6      # kullanıcı başına AI analiz isteği (önbellekten dönenler sayılmaz)

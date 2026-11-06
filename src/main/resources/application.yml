@@ -40,7 +40,7 @@ bankops:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
   ai:
-    similarity-threshold: 0.70
+    similarity-threshold: 0.80
     max-references: 5
     cache-hours: 24
     user-limit-per-minute: 6      # kullanıcı başına AI analiz isteği (önbellekten dönenler sayılmaz)
