@@ -50,7 +50,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/cases/*/assign").hasRole("TeamLead")
                         .requestMatchers("/api/approvals/**", "/api/users/**").hasRole("TeamLead")
                         // Kuyruk ve kayıtlar: Manager yalnızca dashboard'u görür
-                        .requestMatchers("/api/cases/**").hasAnyRole("Specialist", "TeamLead")
+                        .requestMatchers("/api/cases/**", "/api/ai-analyses/**").hasAnyRole("Specialist", "TeamLead")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtConverter)));
         return http.build();

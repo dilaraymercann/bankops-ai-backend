@@ -1,6 +1,9 @@
 package com.bankops.api;
 
 import com.bankops.application.ResourceNotFoundException;
+import com.bankops.application.ai.AiAnalysisFailedException;
+import com.bankops.application.ai.AiUnavailableException;
+import com.bankops.application.ai.RateLimitExceededException;
 import com.bankops.application.auth.InvalidCredentialsException;
 import com.bankops.domain.ForbiddenOperationException;
 import com.bankops.domain.FourEyesViolationException;
@@ -36,6 +39,21 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(InvalidTransitionException.class)
     ProblemDetail invalidTransition(InvalidTransitionException e) {
         return problem(HttpStatus.CONFLICT, e.getMessage());
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    ProblemDetail rateLimited(RateLimitExceededException e) {
+        return problem(HttpStatus.TOO_MANY_REQUESTS, e.getMessage());
+    }
+
+    @ExceptionHandler(AiUnavailableException.class)
+    ProblemDetail aiUnavailable(AiUnavailableException e) {
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage());
+    }
+
+    @ExceptionHandler(AiAnalysisFailedException.class)
+    ProblemDetail aiFailed(AiAnalysisFailedException e) {
+        return problem(HttpStatus.BAD_GATEWAY, e.getMessage());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

@@ -74,6 +74,19 @@ class WorkflowIntegrationTest {
         if (userRepository.count() == 0) {
             seedDataService.seed(PASSWORD);
         }
+        // Seed "şimdi"ye göre veri ürettiğinden uzmanlara düşen kayıt sayısı günün saatine göre değişir.
+        // Testler birbirine karışmasın diye her biri ayrı kayıt kullanır; gerekli kayıtlar burada garanti edilir.
+        ensureInReviewCases("elif.kaya", 12);
+        ensureInReviewCases("can.arslan", 2);
+    }
+
+    private void ensureInReviewCases(String username, int needed) {
+        int missing = needed - count("SELECT count(*) FROM exception_cases c JOIN users u ON u.id = c.assigned_to_user_id "
+                + "WHERE u.username = '" + username + "' AND c.status = 'InReview'");
+        if (missing > 0) {
+            jdbc.update("UPDATE exception_cases SET assigned_to_user_id = ?, status = 'InReview' WHERE id IN "
+                    + "(SELECT id FROM exception_cases WHERE status IN ('New', 'Assigned') ORDER BY id LIMIT ?)", userId(username), missing);
+        }
     }
 
     // ---------------------------------------------------------------- uçtan uca akış

@@ -1,0 +1,3 @@
+# "embed" profili: bilgi tabanındaki eksik embedding'leri doldurur ve uygulamayı kapatır.
+server:
+  port: 0                       # çalışan bir API ile port çakışmasın

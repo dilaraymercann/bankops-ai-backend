@@ -60,8 +60,8 @@ Bu proje bir iş mülakatında sunulacak. Geliştirici, kodun her parçasını m
 | Veritabanı | PostgreSQL + pgvector eklentisi |
 | Veri erişimi | Spring Data JPA (Hibernate) + `hibernate-vector`; benzerlik araması için native SQL |
 | Migration | Flyway |
-| AI soyutlaması | Spring AI (`ChatClient`, `EmbeddingModel`) |
-| LLM sağlayıcısı | Konfigürasyonla seçilir: bulut API sağlayıcısı **veya** Ollama (lokal) |
+| AI soyutlaması | Küçük arayüzler (`LlmClient`, `TextEmbedder`) + Spring `RestClient` ile yazılmış Gemini istemcisi. Spring AI **kullanılmadı** (bkz. Bölüm 10.5) |
+| LLM sağlayıcısı | **Google Gemini** (ücretsiz katman): sohbet `gemini-3.6-flash` (yedekler: `3.5-flash`, `3.5-flash-lite`), embedding `gemini-embedding-2` (768 boyut). Modeller ayardan değişir |
 | Frontend | React + TypeScript + Vite |
 | UI | shadcn/ui (Tailwind CSS), TanStack Table, TanStack Query, Recharts, React Router |
 | Formlar | react-hook-form + zod |
@@ -108,7 +108,7 @@ BankOps/                              # Lokal çalışma klasörü (depo değil)
 │       │   │   ├── application/      # Use case servisleri, DTO'lar (record), repository arayüzleri
 │       │   │   │                     # (Spring Data), LlmAnalysisService, PiiMasker, SimilaritySearch
 │       │   │   ├── infrastructure/   # Güvenlik (JWT), ayarlar, SLA tatil takvimi,
-│       │   │   │                     # pgvector sorguları, Spring AI implementasyonları
+│       │   │   │                     # pgvector sorguları, Gemini istemcisi
 │       │   │   ├── api/              # @RestController'lar, exception handler, SLA @Scheduled job
 │       │   │   └── seed/             # Datafaker ile sentetik veri üretici ("seed" profili)
 │       │   └── resources/
@@ -336,8 +336,9 @@ LLM'e gönderilen **her** metin önce maskelenir:
 Maskelenen alan sayısı `AiAnalysis.MaskedFieldCount`'a yazılır ve arayüzde gösterilir. Maskeleme servisi kapsamlı birim testlerine sahiptir.
 
 ### 5. LLM çağrısı
-- Spring AI `ChatClient` üzerinden yapılır. Sağlayıcı `application.yml` ve Spring profilleriyle seçilir (örn. `ollama` veya `cloud` profili). Uygulama kodu belirli bir sağlayıcıya bağımlı değildir.
-- Yanıt, Spring AI'ın yapılandırılmış çıktı desteğiyle (`.entity(AiAnalysisResult.class)`) bir Java `record`'una dönüştürülür.
+- `LlmClient` ve `TextEmbedder` arayüzleri üzerinden yapılır (application katmanı); tek implementasyon `infrastructure/ai/GeminiClient`'tır (Spring `RestClient`). Sağlayıcı değiştirmek için yalnızca bu sınıf yazılır; `LlmAnalysisService` sağlayıcıyı bilmez.
+- **Neden Spring AI değil:** Spring AI 2.x Spring Boot 4.0 için yayımlandı, proje 4.1'de; ayrıca yalnızca iki Gemini uç noktası (`generateContent`, `embedContent`) gerekiyor. Bağımlılık ağacı ve sürüm riski yerine ~150 satırlık, tamamen okunabilir bir istemci tercih edildi.
+- Gemini `responseMimeType: application/json` ile JSON üretir; yanıt Jackson ile `AiAnalysisResult` record'una çevrilir. Model yoğunsa (503) ya da kota dolduysa (429) bekleyip yeniden dener, sohbet modelleri sırayla denenir (`chat-models`).
 - Sistem promptu Türkçedir ve şunları içerir: AI'ın sadece öneri sunduğu, kesin karar vermediği, yalnızca verilen geçmiş kayıtlara dayanması gerektiği, kanıt yoksa bunu açıkça söylemesi gerektiği.
 - LLM'den **yapılandırılmış JSON** istenir:
 
@@ -385,8 +386,10 @@ Tüm uç noktalar `/api` öneki ile başlar ve JWT gerektirir (login hariç).
 - Tüm yazma uç noktaları güncel **kayıt detayını** döner. Detaydaki `allowedTransitions`, `canProposeResolution`, `canAssign` alanları kullanıcının o kayıtta ne yapabileceğini söyler; arayüz kuralları kendisi bilmez. Aynı anda gelen çakışan işlemler için kayıt satırı kilitlenir (ikinci onay 409 alır).
 
 ### AI
-- `POST /api/cases/{id}/ai-analysis` → analiz üret veya önbellekten getir (`?refresh=true` önbelleği atlar)
-- `POST /api/ai-analyses/{id}/feedback` → `{ "feedback": "Useful" | "NotUseful" }`
+- `GET /api/cases/{id}/ai-analysis` → kayıt için hâlâ geçerli (24 saatten yeni, kayıt değişmemiş) analiz varsa döner, yoksa `204` (sayfa açılışında panel dolsun diye)
+- `POST /api/cases/{id}/ai-analysis` → analiz üret veya önbellekten getir (`?refresh=true` önbelleği atlar). Yanıttaki `available: false` güvenilir geçmiş kayıt olmadığını (model çağrılmadı, `message` gösterilir) belirtir. Hatalar: `429` istek sınırı, `502` model iki denemede geçerli JSON üretemedi, `503` AI yapılandırılmamış ya da sağlayıcıya ulaşılamıyor
+- `POST /api/ai-analyses/{id}/feedback` → `{ "feedback": "Useful" | "NotUseful" }`; güncel analizi döner
+- Yalnızca Specialist (kendi kaydı) ve TeamLead kullanabilir; her kayıt `AI_ANALYZE` / `AI_FEEDBACK` ile audit'e yazılır
 
 ### Onaylar (TeamLead)
 - `GET /api/approvals` → onay bekleyen çözümler
@@ -398,7 +401,7 @@ Tüm uç noktalar `/api` öneki ile başlar ve JWT gerektirir (login hariç).
 - `GET /api/users?role=Specialist` → atama listesi için kullanıcılar
 
 ### Bilgi tabanı
-- `GET /api/knowledge-base` → doğrulanmış çözümler (arama + hata kodu filtresi)
+- `GET /api/knowledge-base` → doğrulanmış çözümler (`search`, `errorCode`, `page`, `pageSize`); her satırda öneren, onaylayan, onay tarihi ve `aiReferenceCount` (AI analizlerinde kaç kez dayanak olduğu)
 
 ### Dashboard (Manager, TeamLead)
 - `GET /api/dashboard/kpis`
@@ -510,7 +513,7 @@ Dönem seçici: Son 7 / 30 / 90 gün.
 - Kurum adları tamamen kurgusal olmalı (gerçek şirket adı kullanılmaz)
 
 ### Embedding'ler
-Seeder, doğrulanmış çözümlerin embedding'lerini toplu olarak hesaplar. AI sağlayıcısı yapılandırılmamışsa embedding adımı atlanır ve uyarı loglanır (uygulama AI özelliği olmadan da çalışabilmelidir).
+Seeder embedding **hesaplamaz** (seed dış servise bağımlı olmasın diye). Seed'den sonra `embed` profili bilgi tabanındaki eksik embedding'leri doldurur ve kapanır: `./mvnw spring-boot:run -Dspring-boot.run.profiles=embed` (idempotent, kaldığı yerden devam eder; Gemini ücretsiz kotası dakikada 100 embedding olduğundan 475 çözüm yaklaşık 4 dakika sürer). Onay anında hesaplanan embedding'ler de aynı sütuna yazılır. `GEMINI_API_KEY` tanımlı değilse uygulama AI özelliği olmadan çalışır.
 
 ---
 
@@ -549,12 +552,12 @@ Her faz sonunda: testler geçmeli, uygulama çalışmalı, geliştiriciye özet 
 
 ### Faz 4 — AI analizi
 - `PiiMasker` (birim testleriyle)
-- Embedding üretimi ve pgvector benzerlik araması
+- Embedding üretimi (`embed` profili + onay anında) ve pgvector benzerlik araması (768 boyut, vektör indeksi yok: birkaç yüz satır ve önce hata koduna göre süzülüyor)
 - `LlmAnalysisService`: prompt, JSON çıktısı, referans doğrulama, fallback, önbellek
 - Geri bildirim
 - Onaylanan çözümlerin bilgi tabanına eklenmesi
 - Frontend: AI Analizi paneli, Bilgi Tabanı ekranı
-- LLM sağlayıcı seçimi: canlı demo için bulut API'sı gerekir (bkz. Bölüm 20)
+- LLM sağlayıcısı: Google Gemini (ücretsiz katman), bkz. Bölüm 10.5 ve 20
 - **Kabul**: Analiz yalnızca doğrulanmış kayıtlara dayanır, kişisel veriler LLM'e gitmez (testle doğrulanır), dayanak yoksa fallback mesajı gösterilir.
 
 ### Faz 5 — Dashboard
@@ -615,14 +618,6 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
-  ai:
-    ollama:
-      chat:
-        options:
-          model: <model-adi>
-      embedding:
-        options:
-          model: <embedding-model-adi>
 
 bankops:
   jwt:
@@ -633,6 +628,14 @@ bankops:
     similarity-threshold: 0.70
     max-references: 5
     cache-hours: 24
+    user-limit-per-minute: 6      # kullanıcı başına AI analiz isteği (önbellekten dönenler sayılmaz)
+    global-limit-per-minute: 30   # tüm kullanıcılar; ücretsiz API kotasını korur
+    gemini:
+      api-key: ${GEMINI_API_KEY:}   # boşsa AI kapalıdır, uygulama yine çalışır
+      base-url: https://generativelanguage.googleapis.com/v1beta
+      chat-models: gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite   # sırayla denenir
+      embedding-model: gemini-embedding-2
+      embedding-dimensions: 768
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}   # yalnızca frontend adresi
   sla:
@@ -694,7 +697,7 @@ Uygulama, mülakatçının bir linkten kendisi deneyebilmesi için bulutta yayı
 
 - Lokal ile yayın arasındaki **tek fark ortam değişkenleridir**; koda ortama özel `if` yazılmaz. Lokalde `.env`, yayında platformun ortam değişkenleri kullanılır.
 - CORS izinli adresleri ve frontend'in API adresi ayardan okunur, koda sabit yazılmaz.
-- Canlı demoda AI için **bulut LLM API'sı** kullanılır (Ollama ücretsiz bulut katmanlarında çalıştırılamaz). Sağlayıcı seçimi Faz 4'te yapılır; lokal geliştirmede Ollama seçeneği korunabilir.
+- Canlı demoda AI için **Google Gemini API'sı** kullanılır (Ollama ücretsiz bulut katmanlarında çalıştırılamaz). Ücretsiz katmanda gönderilen içerik Google tarafından ürün geliştirmede kullanılabilir; bu yüzden yalnızca sentetik ve maskelenmiş veri gönderilir. Kotalar garanti değildir (modele göre değişir, embedding dakikada 100 istek), bu yüzden önbellek ve istek sınırı zorunludur. Gemini anahtarı Render'da `GEMINI_API_KEY` olarak tanımlanır; embedding'ler Supabase'e seed sonrası `embed` profiliyle yazılır.
 - Demo herkese açık olduğundan AI analiz uç noktasına basit bir istek sınırı (rate limit) konur; LLM API anahtarının harcama limiti sağlayıcı panelinden sınırlandırılır.
 - Seed verisi Supabase'e bir kez, `seed` profiliyle yüklenir.
 - Ücretsiz katman sınırlamaları (koşullar değişebilir, yayın öncesi kontrol edilir): Render ücretsiz servisi bir süre istek almazsa uykuya geçer ve ilk istekte yavaş açılır; Supabase ücretsiz projesi uzun süre kullanılmazsa duraklatılabilir. Mülakattan önce link açılıp "ısıtılmalı".

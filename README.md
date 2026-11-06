@@ -49,6 +49,16 @@ Kullanıcı adları: `elif.kaya`, `can.arslan`, `zeynep.koc`, `mert.sahin`, `ays
 
 Veritabanı doluysa seed atlanır. Sıfırdan üretmek için: `docker compose down -v && docker compose up -d`.
 
+## AI analizi (Google Gemini)
+
+AI analizi için `.env` dosyasına `GEMINI_API_KEY` eklenir (anahtar [Google AI Studio](https://aistudio.google.com)'dan ücretsiz alınır; yoksa uygulama AI olmadan çalışır). Seed'den sonra, bilgi tabanındaki çözümlerin embedding'ini bir kez hesaplamak için:
+
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.profiles=embed
+```
+
+Komut yalnızca eksik embedding'leri doldurur, tekrar çalıştırmak güvenlidir (ücretsiz kota nedeniyle ~4 dakika sürebilir).
+
 ## Test
 
 ```bash

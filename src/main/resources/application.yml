@@ -39,3 +39,16 @@ bankops:
     secret: ${JWT_SECRET}      # en az 32 karakter; ortam değişkeninden okunur
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  ai:
+    similarity-threshold: 0.70
+    max-references: 5
+    cache-hours: 24
+    user-limit-per-minute: 6      # kullanıcı başına AI analiz isteği (önbellekten dönenler sayılmaz)
+    global-limit-per-minute: 30   # tüm kullanıcılar toplamı; ücretsiz API kotasını korur
+    gemini:
+      api-key: ${GEMINI_API_KEY:}   # boşsa AI özellikleri kapalıdır, uygulama yine çalışır
+      base-url: https://generativelanguage.googleapis.com/v1beta
+      # Sırayla denenir: yoğunluk (503/429) olursa bir sonraki modele geçilir
+      chat-models: gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite
+      embedding-model: gemini-embedding-2
+      embedding-dimensions: 768

@@ -37,6 +37,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -58,6 +59,7 @@ public class ApprovalService {
     private final SlaCalculator slaCalculator;
     private final CaseQueryService queryService;
     private final Clock clock;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional(readOnly = true)
     public List<ApprovalItem> pending() {
@@ -133,11 +135,14 @@ public class ApprovalService {
         resolution.setApprovedByUserId(user.id());
         resolution.setApprovedAt(now);
         resolution.setVerified(true);
-        // Embedding hesabı ve bilgi tabanına ekleme Faz 4'te bu noktaya bağlanacak
         resolution.setIncludeInKnowledgeBase(request.includeInKnowledgeBase());
 
         auditService.record(user.id(), "APPROVE", "ExceptionCase", caseId,
                 AuditDetails.of("resolutionId", resolution.getId(), "includeInKnowledgeBase", request.includeInKnowledgeBase(), "note", note));
+        if (request.includeInKnowledgeBase()) {
+            // Embedding COMMIT'ten sonra hesaplanır (bkz. ResolutionEmbeddingListener)
+            eventPublisher.publishEvent(new ResolutionApprovedEvent(resolution.getId()));
+        }
         return queryService.get(caseId, user);
     }
 
