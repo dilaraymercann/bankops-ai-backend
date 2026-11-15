@@ -313,13 +313,11 @@ public class SeedDataService {
             for (int i = 0; i < closedCount; i++) {
                 closedCodes.add(dice.weighted(CODE_WEIGHTS));
             }
-            Map<ErrorCode, Long> codeCounts = closedCodes.stream()
-                    .collect(Collectors.groupingBy(c -> c, () -> new EnumMap<>(ErrorCode.class), Collectors.counting()));
-
             List<CasePlan> plans = new ArrayList<>();
             for (ErrorCode code : closedCodes) {
-                plans.add(closedPlan(code, codeCounts.get(code)));
+                plans.add(closedPlan(code));
             }
+            selectKnowledgeBase(plans);
             List<Weighted<ErrorCode>> openCodeWeights = CODE_WEIGHTS.stream()
                     .filter(option -> option.value() != ErrorCode.HOLIDAY_VALUE_DATE)
                     .toList();
@@ -332,6 +330,21 @@ public class SeedDataService {
             plans.add(demoCasePlan());
             plans.sort(Comparator.comparing(plan -> plan.created));
             return plans;
+        }
+
+        /**
+         * Bilgi tabanına girecek çözümleri seçer: her hata kodu için reddedilmemiş kapalı kayıtlardan tam hedef kadar
+         * (örn. SANCTION_HIT için 10). Olasılıkla seçmek hedeften sapıyordu (bir günde 21 çıkabiliyordu); bu yüzden
+         * sayı rastgele değil, kesindir. Hangi kayıtların girdiği ise yine tohumlu rastgeleliğe bağlıdır.
+         */
+        private void selectKnowledgeBase(List<CasePlan> closedPlans) {
+            Map<ErrorCode, List<CasePlan>> candidates = closedPlans.stream()
+                    .filter(plan -> !plan.rejected)
+                    .collect(Collectors.groupingBy(plan -> plan.code, () -> new EnumMap<>(ErrorCode.class), Collectors.toList()));
+            candidates.forEach((code, plans) -> {
+                Collections.shuffle(plans, dice.random());
+                plans.stream().limit(KNOWLEDGE_BASE_TARGET.get(code)).forEach(plan -> plan.includeInKnowledgeBase = true);
+            });
         }
 
         private CasePlan basePlan(ErrorCode code) {
@@ -362,11 +375,9 @@ public class SeedDataService {
             return SPECIALIST_LOAD.length - 1;
         }
 
-        private CasePlan closedPlan(ErrorCode code, long countForCode) {
+        private CasePlan closedPlan(ErrorCode code) {
             CasePlan plan = basePlan(code);
             plan.rejected = dice.chance(REJECTED_RATE);
-            plan.includeInKnowledgeBase = !plan.rejected
-                    && dice.chance((double) KNOWLEDGE_BASE_TARGET.get(code) / countForCode);
             boolean breached = dice.chance(SLA_BREACH_RATE);
 
             // AI destekli kayıtlar daha kısa sürede çözülür (ortalama 38 dk, AI'sız 61 dk)

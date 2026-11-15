@@ -404,6 +404,7 @@ Tüm uç noktalar `/api` öneki ile başlar ve JWT gerektirir (login hariç).
 - `GET /api/knowledge-base` → doğrulanmış çözümler (`search`, `errorCode`, `page`, `pageSize`); her satırda öneren, onaylayan, onay tarihi ve `aiReferenceCount` (AI analizlerinde kaç kez dayanak olduğu)
 
 ### Dashboard (Manager, TeamLead)
+Uzman erişemez (403). Dönemli uç noktalar `?days=7|30|90` alır (varsayılan 30). Süreler dakika, oranlar 0–1 kesirdir.
 - `GET /api/dashboard/kpis`
 - `GET /api/dashboard/ai-impact`
 - `GET /api/dashboard/error-types`
@@ -480,13 +481,21 @@ Görsel tasarım taslağı `bankops_frontend/docs/design/BankOps AI Ekranları.p
 - **AI etkisi**: AI analizi kullanılan ve kullanılmayan kayıtların ortalama çözüm süresi karşılaştırması + AI öneri kabul oranı
 - **En sık hata türleri**: yatay çubuk grafik
 - **Günlük SLA ihlal oranı**: son 14 iş günü, %8 hedef çizgisiyle
-- **Yaşlanan açık kayıtlar**: 0–1 saat, 1–4 saat, 4–8 saat, 1–3 gün, 3 gün+
+- **Yaşlanan açık kayıtlar**: 0–1 saat, 1–4 saat, 4–8 saat, 8–24 saat, 1–3 gün, 3 gün+ (8–24 saat kovası taslakta yoktu; 8 saat ile 1 gün arasında boşluk kalmaması için eklendi)
 - **İşlem tipine göre istisnalar**: yığılmış çubuk + lejant
 - **Hata türüne göre AI başarısı ve bilgi tabanı**: tablo (analiz sayısı, kabul oranı, doğrulanmış çözüm sayısı, durum etiketi: Güçlü ≥%75 / Gelişiyor %50–74 / Bilgi tabanı zayıf <%50)
 - **Ekip iş yükü ve performans**: uzman bazında açık kayıt, bugün kapanan, ortalama süre, SLA aşan, AI kullanım oranı
-- **Saatlik istisna yoğunluğu**: hafta içi günler × 08:00–18:00 ısı haritası
+- **Saatlik istisna yoğunluğu**: hafta içi günler × 08:00–18:00 ısı haritası (son 4 haftanın ortalama yeni kayıt sayısı; dönem seçiciden bağımsız)
 
-Dönem seçici: Son 7 / 30 / 90 gün.
+Dönem seçici: Son 7 / 30 / 90 gün. Dönem gerçek "şimdi"den geriye hesaplanır; `days` parametresi yalnızca 7, 30 veya 90 olabilir (varsayılan 30, başka değer 400). Dönemden bağımsız paneller (günlük SLA ihlal oranı, yaşlanan kayıtlar, ısı haritası) bu parametreyi almaz. Seed tarihe göre veri ürettiğinden demo öncesi taze seed önerilir.
+
+**Metrik tanımları** (`DashboardService`):
+- **Açık kayıt**: Kapatıldı ve Reddedildi dışındaki her durum. Açık sayısı, inceleme bekleyen, yüksek öncelikli ve SLA aşılmış kartları o anki durumdur; yalnızca toplam kayıt döneme bağlıdır.
+- **Çözüm süresi**: Kapatıldı durumundaki kaydın **çalışma süresi** (`SlaCalculator.workingTimeBetween`: yalnızca mesai dakikaları, Critical için gerçek süre). SLA ile aynı tanım; gece ve hafta sonu sayılmaz. 6. KPI kartı bir önceki aynı uzunluktaki dönemle karşılaştırılır.
+- **SLA ihlali** (günlük oran): bitmiş kayıtta `closed_at > sla_deadline`, açık kayıtta `sla_deadline` geçmiş olması; gün, kaydın açıldığı İstanbul günüdür. Hedef %8.
+- **AI öneri kabul oranı**: "Faydalı" oyu / oy verilmiş analizler (oy verilmeyenler paydaya girmez). Durum etiketi: ≥%75 Güçlü, %50–74 Gelişiyor, <%50 Bilgi tabanı zayıf, oy yoksa Veri yok.
+- **AI etkisi**: kapanmış kayıtlar, o kayıt için en az bir AI analizi olup olmamasına göre ikiye ayrılır (seçim yanlılığı olabilir: AI daha zor kayıtlarda kullanılıyor olabilir).
+- **Ekip tablosu**: uzman, kaydın atandığı kullanıcıdır; açık kayıt, bugün kapanan ve SLA aşan o anki durumdur.
 
 ### Ortak arayüz kuralları
 - Tüm ekranlar mobil genişlikte kullanılabilir olmalı (menü üste taşınır, tablolar yatay kaydırılır).
